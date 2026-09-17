@@ -5,12 +5,21 @@ set -euo pipefail
 WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
 BUILD_DIR="build-bionic"
 
-echo "=================== [1/8] Locate Android NDK ==================="
-# GitHub runners pre-install NDK under $ANDROID_HOME/ndk. Prefer a 27.x NDK.
-NDK_PARENT="${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk}}"
+echo "=================== [1/9] Locate Android NDK ==================="
+# GitHub runners set ANDROID_NDK_HOME to a concrete NDK dir (e.g. .../ndk/27.3.x),
+# not the ndk parent dir. Detect both layouts.
 NDK_DIR=""
-if [ -d "$NDK_PARENT" ]; then
-  NDK_DIR="$(ls -d "${NDK_PARENT}"/27.* 2>/dev/null | sort -V | tail -1 || true)"
+for candidate in "${ANDROID_NDK_ROOT:-}" "${ANDROID_NDK_HOME:-}"; do
+  if [ -n "$candidate" ] && [ -d "$candidate/toolchains/llvm/prebuilt/linux-x86_64/bin" ]; then
+    NDK_DIR="$candidate"
+    break
+  fi
+done
+if [ -z "$NDK_DIR" ]; then
+  NDK_PARENT="${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk"
+  if [ -d "$NDK_PARENT" ]; then
+    NDK_DIR="$(ls -d "${NDK_PARENT}"/27.* 2>/dev/null | sort -V | tail -1 || true)"
+  fi
 fi
 if [ -z "$NDK_DIR" ] || [ ! -d "$NDK_DIR" ]; then
   echo "Pre-installed NDK 27.x not found, downloading NDK r27c ..."
@@ -25,7 +34,7 @@ echo "Using NDK: $NDK_DIR"
 test -x "$NDK_BIN/aarch64-linux-android26-clang"
 "$NDK_BIN/aarch64-linux-android26-clang" --version | head -1
 
-echo "=================== [2/8] Host dependencies ==================="
+echo "=================== [2/9] Host dependencies ==================="
 sudo apt-get update -qq
 # glslang-tools provides /usr/bin/glslangValidator on 24.04
 # libdrm-dev provides /usr/include/libdrm/*.h (header-only use for the build)
@@ -42,7 +51,20 @@ echo "meson: $(meson --version)"
 echo "ninja: $(ninja --version)"
 echo "glslangValidator: $(command -v glslangValidator)"
 
-echo "=================== [3/8] Generate cross file ==================="
+echo "=================== [3/9] Prepare clean cross-include dir ==================="
+# CRITICAL: do NOT use -I/usr/include for the Android cross build.
+# /usr/include contains glibc headers that override bionic headers and break
+# meson's compiler sanity check ("cannot compile programs").
+# Instead symlink only the X11/ and libdrm/ subdirs into a clean directory.
+CROSS_INCLUDE="$WORKSPACE/cross-include"
+rm -rf "$CROSS_INCLUDE"
+mkdir -p "$CROSS_INCLUDE"
+ln -s /usr/include/X11    "$CROSS_INCLUDE/X11"
+ln -s /usr/include/libdrm "$CROSS_INCLUDE/libdrm"
+echo "Clean cross-include at: $CROSS_INCLUDE"
+ls -la "$CROSS_INCLUDE"
+
+echo "=================== [4/9] Generate cross file ==================="
 cat > cross-aarch64-android.txt <<CROSSFILE
 [binaries]
 c = '${NDK_BIN}/aarch64-linux-android26-clang'
@@ -52,8 +74,8 @@ strip = '${NDK_BIN}/llvm-strip'
 ld = '${NDK_BIN}/ld.lld'
 
 [built-in options]
-c_args = ['-fPIC', '-fdata-sections', '-ffunction-sections', '-Wno-unused-command-line-argument', '-I/usr/include', '-I/usr/include/libdrm', '-DHAVE_X11']
-cpp_args = ['-fPIC', '-fdata-sections', '-ffunction-sections', '-Wno-unused-command-line-argument', '-std=c++20', '-I/usr/include', '-I/usr/include/libdrm', '-DHAVE_X11']
+c_args = ['-fPIC', '-fdata-sections', '-ffunction-sections', '-Wno-unused-command-line-argument', '-I${CROSS_INCLUDE}', '-I${CROSS_INCLUDE}/libdrm', '-DHAVE_X11']
+cpp_args = ['-fPIC', '-fdata-sections', '-ffunction-sections', '-Wno-unused-command-line-argument', '-std=c++20', '-I${CROSS_INCLUDE}', '-I${CROSS_INCLUDE}/libdrm', '-DHAVE_X11']
 c_link_args = ['-Wl,--gc-sections', '-Wl,-z,max-page-size=16384', '-Wl,--undefined-version']
 cpp_link_args = ['-Wl,--gc-sections', '-Wl,-z,max-page-size=16384', '-Wl,--undefined-version']
 
@@ -66,7 +88,7 @@ CROSSFILE
 echo "Cross file written:"
 cat cross-aarch64-android.txt
 
-echo "=================== [4/8] Meson setup ==================="
+echo "=================== [5/9] Meson setup ==================="
 rm -rf "$BUILD_DIR"
 meson setup "$BUILD_DIR" \
   --cross-file=cross-aarch64-android.txt \
@@ -78,21 +100,21 @@ meson setup "$BUILD_DIR" \
   -Dwith_mangohud_next=false -Dwith_server=false \
   -Dbuildtype=release -Dstrip=true
 
-echo "=================== [5/8] Build ==================="
+echo "=================== [6/9] Build ==================="
 ninja -C "$BUILD_DIR" -j"$(nproc)"
 
-echo "=================== [6/8] Strip ==================="
+echo "=================== [7/9] Strip ==================="
 STRIP="$NDK_BIN/llvm-strip"
 "$STRIP" --strip-unneeded "$BUILD_DIR/src/libMangoHud.so"
 "$STRIP" --strip-unneeded "$BUILD_DIR/src/libMangoHud_opengl.so"
 "$STRIP" --strip-unneeded "$BUILD_DIR/src/libMangoHud_shim.so"
 ls -lh "$BUILD_DIR/src/libMangoHud"*.so
 
-echo "=================== [7/8] Verify ELF ==================="
+echo "=================== [8/9] Verify ELF ==================="
 "$NDK_BIN/llvm-readelf" -h "$BUILD_DIR/src/libMangoHud.so" | grep -E "Machine|Type"
 "$NDK_BIN/llvm-readelf" -d "$BUILD_DIR/src/libMangoHud.so" | grep NEEDED || true
 
-echo "=================== [8/8] Package ==================="
+echo "=================== [9/9] Package ==================="
 rm -rf release
 mkdir -p release/lib/mangohud
 cp "$BUILD_DIR/src/libMangoHud.so"        release/lib/mangohud/
