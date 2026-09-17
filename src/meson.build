@@ -72,7 +72,7 @@ if ['windows', 'mingw'].contains(host_machine.system())
   )
 endif
 
-if is_unixy
+if is_unixy or host_machine.system() == 'android'
   vklayer_files += files(
     'cpu.cpp',
     'memory.cpp',
@@ -137,7 +137,7 @@ if is_unixy
     )
   endif
 
-  if get_option('with_x11').enabled()
+  if get_option('with_x11').enabled() or host_machine.system() == 'android'
     pre_args += '-DHAVE_X11'
 
     vklayer_files += files(
@@ -302,7 +302,7 @@ mangoapp = executable(
   install : true
 )
 endif
-if is_unixy
+if is_unixy or host_machine.system() == 'android'
   mangohud_shim = shared_library(
     'MangoHud_shim',
     files(

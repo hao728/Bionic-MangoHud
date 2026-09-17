@@ -109,6 +109,12 @@ void parseConfigFile(overlay_params& params) {
 #ifdef _WIN32
     paths.push_back("C:\\mangohud\\MangoHud.conf");
 #endif
+#ifdef __ANDROID__
+    // Winlator/Android: 固定路径配置文件，不需要 HOME 环境变量
+    paths.push_back("/home/MangoHud.conf");
+    paths.push_back("/data/data/com.winlator.cmod/files/imagefs/home/MangoHud.conf");
+    paths.push_back("/data/data/com.winlator/files/imagefs/home/MangoHud.conf");
+#endif
     std::string line;
     for (auto p = paths.rbegin(); p != paths.rend(); p++) {
         std::ifstream stream(*p);

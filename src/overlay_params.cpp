@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#ifdef __linux__
+#if defined(__linux__) && !defined(__ANDROID__)
 #include <wordexp.h>
 #include <unistd.h>
 #endif
@@ -36,7 +36,15 @@
 #include "fps_limiter.h"
 
 #if defined(HAVE_X11) || defined(HAVE_WAYLAND)
+#ifdef HAVE_WAYLAND
 #include <xkbcommon/xkbcommon.h>
+#endif
+#ifdef HAVE_X11
+#include <X11/Xlib.h>
+#include <X11/keysym.h>
+#include "loaders/loader_x11.h"
+#include "shared_x11.h"
+#endif
 #endif
 
 #include "dbus_info.h"
@@ -49,7 +57,13 @@ std::unique_ptr<fpsMetrics> fpsmetrics;
 std::mutex config_mtx;
 std::condition_variable config_cv;
 bool config_ready = false;
+#ifdef __ANDROID__
+// Android NDK libc++ 不支持 std::atomic<std::shared_ptr<T>>，用 mutex 替代
+static std::shared_ptr<overlay_params> g_params;
+static std::mutex g_params_mtx;
+#else
 static std::atomic<std::shared_ptr<overlay_params>> g_params;
+#endif
 std::shared_ptr<fpsLimiter> fps_limiter;
 
 #if __cplusplus >= 201703L
@@ -177,11 +191,19 @@ parse_string_to_keysym_vec(const char *str)
    auto keyStrings = str_tokenize(str);
    for (auto& ks : keyStrings) {
       trim(ks);
+#ifdef HAVE_X11
+      KeySym xk = get_libx11()->XStringToKeysym(ks.c_str());
+      if (xk != NoSymbol)
+         keys.push_back(xk);
+      else
+         SPDLOG_ERROR("Unrecognized key: '{}'", ks);
+#else
       xkb_keysym_t xk = xkb_keysym_from_name(ks.c_str(), XKB_KEYSYM_CASE_INSENSITIVE);
       if (xk != XKB_KEY_NoSymbol)
          keys.push_back(xk);
       else
          SPDLOG_ERROR("Unrecognized key: '{}'", ks);
+#endif
    }
    return keys;
 }
@@ -845,7 +867,12 @@ parse_overlay_env(struct overlay_params *params,
 
 static void set_param_defaults(struct overlay_params *params){
    params->enabled[OVERLAY_PARAM_ENABLED_fps] = true;
+#ifdef __ANDROID__
+   // Winlator: 默认关闭帧时间图表，避免闪屏
+   params->enabled[OVERLAY_PARAM_ENABLED_frame_timing] = false;
+#else
    params->enabled[OVERLAY_PARAM_ENABLED_frame_timing] = true;
+#endif
    params->enabled[OVERLAY_PARAM_ENABLED_core_load] = false;
    params->enabled[OVERLAY_PARAM_ENABLED_core_bars] = false;
    params->enabled[OVERLAY_PARAM_ENABLED_cpu_temp] = false;
@@ -868,7 +895,11 @@ static void set_param_defaults(struct overlay_params *params){
    params->enabled[OVERLAY_PARAM_ENABLED_core_load_change] = false;
    params->enabled[OVERLAY_PARAM_ENABLED_gpu_voltage] = false;
    params->enabled[OVERLAY_PARAM_ENABLED_legacy_layout] = true;
+#ifdef __ANDROID__
+   params->enabled[OVERLAY_PARAM_ENABLED_frametime] = false;
+#else
    params->enabled[OVERLAY_PARAM_ENABLED_frametime] = true;
+#endif
    params->enabled[OVERLAY_PARAM_ENABLED_fps_only] = false;
    params->enabled[OVERLAY_PARAM_ENABLED_device_battery_icon] = false;
    params->enabled[OVERLAY_PARAM_ENABLED_throttling_status] = false;
@@ -975,6 +1006,17 @@ parse_overlay_config(struct overlay_params *params,
    }
 
 #if defined(HAVE_X11) || defined(HAVE_WAYLAND)
+#ifdef HAVE_X11
+   params->toggle_hud = { XK_Shift_R, XK_F12 };
+   params->toggle_hud_position = { XK_Shift_R, XK_F11 };
+   params->toggle_preset = { XK_Shift_R, XK_F10 };
+   params->reset_fps_metrics = { XK_Shift_R, XK_F9};
+   params->toggle_fps_limit = { XK_Shift_L, XK_F1 };
+   params->toggle_logging = { XK_Shift_L, XK_F2 };
+   params->reload_cfg = { XK_Shift_L, XK_F4 };
+   params->upload_log = { XK_Shift_L, XK_F3 };
+   params->upload_logs = { XK_Control_L, XK_F3 };
+#else
    params->toggle_hud = { XKB_KEY_Shift_R, XKB_KEY_F12 };
    params->toggle_hud_position = { XKB_KEY_Shift_R, XKB_KEY_F11 };
    params->toggle_preset = { XKB_KEY_Shift_R, XKB_KEY_F10 };
@@ -984,6 +1026,7 @@ parse_overlay_config(struct overlay_params *params,
    params->reload_cfg = { XKB_KEY_Shift_L, XKB_KEY_F4 };
    params->upload_log = { XKB_KEY_Shift_L, XKB_KEY_F3 };
    params->upload_logs = { XKB_KEY_Control_L, XKB_KEY_F3 };
+#endif
 #endif
 
 #ifdef _WIN32
@@ -1220,7 +1263,14 @@ parse_overlay_config(struct overlay_params *params,
    }
 
    auto snapshot = std::make_shared<overlay_params>(*params);
+#ifdef __ANDROID__
+   {
+      std::lock_guard<std::mutex> lock(g_params_mtx);
+      g_params = std::move(snapshot);
+   }
+#else
    g_params.store(std::move(snapshot), std::memory_order_release);
+#endif
 
    fps_limiter = std::make_unique<fpsLimiter>(params->fps_limit_method ? false : true);
 
@@ -1239,8 +1289,17 @@ parse_overlay_config(struct overlay_params *params,
 
 std::shared_ptr<overlay_params> get_params() {
     for (;;) {
+#ifdef __ANDROID__
+        std::shared_ptr<overlay_params> p;
+        {
+            std::lock_guard<std::mutex> lock(g_params_mtx);
+            p = g_params;
+        }
+        if (p) return p;
+#else
         auto p = g_params.load(std::memory_order_acquire);
         if (p) return p;
+#endif
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }
 }
