@@ -2,136 +2,54 @@ name: Build MangoHud Winlator Bionic
 
 on:
   push:
-    branches: [ winlator-bionic ]
+    branches: [ winlator-bionic, master ]
   workflow_dispatch:
 
 env:
   NDK_VERSION: r27c
-  ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r27c
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install build dependencies
+      - name: Run Android bionic build script
+        env:
+          ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r27c
         run: |
-          sudo apt-get update
-          sudo apt-get install -y meson ninja-build python3-pip glslang-dev \
-            libx11-dev libxext-dev libwayland-dev libxkbcommon-dev \
-            libdbus-1-dev libdrm-dev libcap-dev pkg-config zip
-          pip3 install mako
+          chmod +x scripts/build-android-bionic.sh
+          ./scripts/build-android-bionic.sh
 
-      - name: Download Android NDK
-        run: |
-          wget -q "https://dl.google.com/android/repository/android-ndk-${{ env.NDK_VERSION }}-linux.zip"
-          unzip -q "android-ndk-${{ env.NDK_VERSION }}-linux.zip"
-          echo "NDK installed at $ANDROID_NDK_HOME"
-
-      - name: Prepare libdrm headers
-        run: |
-          git clone --depth 1 https://gitlab.freedesktop.org/mesa/drm.git libdrm-headers
-          cd libdrm-headers/include
-          ln -sf drm libdrm
-          echo "libdrm headers ready"
-
-      - name: Generate cross file
-        run: |
-          NDK_PATH="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
-          X11_INCLUDE="/usr/include"
-          LIBDRM_INCLUDE="${{ github.workspace }}/libdrm-headers/include"
-          DRM_INCLUDE="${{ github.workspace }}/libdrm-headers/include/drm"
-          cat > cross-aarch64-android.txt << CROSSFILE
-[binaries]
-c = '$NDK_PATH/bin/aarch64-linux-android26-clang'
-cpp = '$NDK_PATH/bin/aarch64-linux-android26-clang++'
-ar = '$NDK_PATH/bin/llvm-ar'
-strip = '$NDK_PATH/bin/llvm-strip'
-ld = '$NDK_PATH/bin/ld.lld'
-
-[built-in options]
-c_args = ['-fPIC', '-fdata-sections', '-ffunction-sections', '-Wno-unused-command-line-argument', '-I$X11_INCLUDE', '-I$LIBDRM_INCLUDE', '-I$DRM_INCLUDE', '-DHAVE_X11']
-cpp_args = ['-fPIC', '-fdata-sections', '-ffunction-sections', '-Wno-unused-command-line-argument', '-std=c++20', '-I$X11_INCLUDE', '-I$LIBDRM_INCLUDE', '-I$DRM_INCLUDE', '-DHAVE_X11']
-c_link_args = ['-Wl,--gc-sections', '-Wl,-z,max-page-size=16384', '-Wl,--undefined-version']
-cpp_link_args = ['-Wl,--gc-sections', '-Wl,-z,max-page-size=16384', '-Wl,--undefined-version']
-
-[host_machine]
-system = 'android'
-cpu_family = 'aarch64'
-cpu = 'aarch64'
-endian = 'little'
-CROSSFILE
-          cat cross-aarch64-android.txt
-
-      - name: Meson setup
-        run: |
-          rm -rf build-bionic
-          meson setup build-bionic \
-            --cross-file=cross-aarch64-android.txt \
-            --prefix=/usr --libdir=lib \
-            -Dwith_x11=disabled -Dwith_wayland=disabled -Dwith_dbus=disabled \
-            -Dwith_xnvctrl=disabled -Dwith_nvml=disabled \
-            -Dmangoapp=false -Dmangohudctl=false -Dtests=disabled -Dinclude_doc=false \
-            -Dimgui:opengl=disabled -Dimgui:sdl2=disabled -Dimgui:glfw=disabled \
-            -Dwith_mangohud_next=false -Dwith_server=false \
-            -Dbuildtype=release -Dstrip=true
-
-      - name: Build
-        run: |
-          ninja -C build-bionic -j$(nproc)
-
-      - name: Strip libraries
-        run: |
-          STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
-          $STRIP --strip-unneeded build-bionic/src/libMangoHud.so
-          $STRIP --strip-unneeded build-bionic/src/libMangoHud_opengl.so
-          $STRIP --strip-unneeded build-bionic/src/libMangoHud_shim.so
-          ls -lh build-bionic/src/libMangoHud*.so
-
-      - name: Package release
-        run: |
-          mkdir -p release/lib/mangohud
-          cp build-bionic/src/libMangoHud.so release/lib/mangohud/
-          cp build-bionic/src/libMangoHud_opengl.so release/lib/mangohud/
-          cp build-bionic/src/libMangoHud_shim.so release/lib/mangohud/
-          cp cross-aarch64-android.txt release/
-          cd release && zip -r ../MangoHud-Winlator-bionic-aarch64.zip .
-          cd ..
-          ls -lh MangoHud-Winlator-bionic-aarch64.zip
-
-      - name: Upload artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: MangoHud-Winlator-bionic-aarch64
           path: MangoHud-Winlator-bionic-aarch64.zip
+          retention-days: 90
 
-      - name: Get version
-        id: version
-        run: |
-          VERSION=$(grep "version" meson.build | head -1 | grep -oP "'[^']+'" | tr -d "'")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
-
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}-winlator-bionic
-          name: MangoHud ${{ steps.version.outputs.version }} - Winlator Bionic Edition
+          tag_name: winlator-bionic-latest
+          name: MangoHud Winlator Bionic (latest build)
           body: |
-            ## 专为 Winlator (Android) 编译的 MangoHud bionic aarch64 版
-            
-            ### 改进
-            - 默认关闭帧时间图表，解决闪屏
-            - 固定路径配置文件，不需要 HOME 环境变量
-            - Android bionic 兼容性修改
-            
-            ### 包含文件
-            - libMangoHud.so (Vulkan 主库)
-            - libMangoHud_opengl.so (OpenGL 注入)
-            - libMangoHud_shim.so (shim)
-            - cross-aarch64-android.txt (交叉编译配置)
+            ## MangoHud for Winlator (Android bionic, aarch64)
+
+            Automated build from the winlator-bionic branch.
+
+            ### Changes vs upstream
+            - frame_timing / frametime disabled by default (fixes flickering)
+            - Fixed config file paths, no HOME environment variable needed
+            - Android bionic compatibility patches
+
+            ### Contents
+            - lib/mangohud/libMangoHud.so
+            - lib/mangohud/libMangoHud_opengl.so
+            - lib/mangohud/libMangoHud_shim.so
+            - cross-aarch64-android.txt
           files: MangoHud-Winlator-bionic-aarch64.zip
+        if: success()
