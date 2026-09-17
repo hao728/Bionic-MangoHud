@@ -50,3 +50,5 @@ subprojects/cmocka/
 **/GPATH
 **/GRTAGS
 **/GTAGS
+subprojects/vkroots/
+subprojects/.wraplock

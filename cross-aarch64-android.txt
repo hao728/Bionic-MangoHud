@@ -1,0 +1,18 @@
+[binaries]
+c = '/home/user/Doubao/chats/38442007289826818/build/android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang'
+cpp = '/home/user/Doubao/chats/38442007289826818/build/android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang++'
+ar = '/home/user/Doubao/chats/38442007289826818/build/android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+strip = '/home/user/Doubao/chats/38442007289826818/build/android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+ld = '/home/user/Doubao/chats/38442007289826818/build/android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld'
+
+[built-in options]
+c_args = ['-fPIC', '-fdata-sections', '-ffunction-sections', '-Wno-unused-command-line-argument', '-I/home/user/Doubao/chats/38442007289826818/build/x11-headers/include', '-I/home/user/Doubao/chats/38442007289826818/build/libdrm-headers/include', '-I/home/user/Doubao/chats/38442007289826818/build/libdrm-headers/include/drm', '-DHAVE_X11']
+cpp_args = ['-fPIC', '-fdata-sections', '-ffunction-sections', '-Wno-unused-command-line-argument', '-std=c++20', '-I/home/user/Doubao/chats/38442007289826818/build/x11-headers/include', '-I/home/user/Doubao/chats/38442007289826818/build/libdrm-headers/include', '-I/home/user/Doubao/chats/38442007289826818/build/libdrm-headers/include/drm', '-DHAVE_X11']
+c_link_args = ['-Wl,--gc-sections', '-Wl,-z,max-page-size=16384', '-Wl,--undefined-version']
+cpp_link_args = ['-Wl,--gc-sections', '-Wl,-z,max-page-size=16384', '-Wl,--undefined-version']
+
+[host_machine]
+system = 'android'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'

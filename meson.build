@@ -98,7 +98,7 @@ x11_wsi_args = []
 wayland_wsi_args = []
 vulkan_wsi_deps = []
 
-if is_unixy
+if is_unixy and host_machine.system() != 'android'
   dep_x11 = dependency('x11', required: get_option('with_x11'))
   dep_wayland_client = dependency('wayland-client',
       required: get_option('with_wayland'), version : '>=1.11')
@@ -120,7 +120,7 @@ if dep_wayland_client.found()
   vulkan_wsi_deps += dep_wayland_client
 endif
 
-if is_unixy and not dep_x11.found() and not dep_wayland_client.found()
+if is_unixy and host_machine.system() != 'android' and not dep_x11.found() and not dep_wayland_client.found()
   error('At least one of "with_x11" and "with_wayland" should be enabled')
 endif
 vulkan_wsi_args = x11_wsi_args + wayland_wsi_args
@@ -312,8 +312,13 @@ if get_option('mangoapp')
   glfw3_dep = dependency('glfw3')
 endif
 
-libdrm_dep = dependency('libdrm')
-libcap_dep = dependency('libcap')
+if host_machine.system() != 'android'
+  libdrm_dep = dependency('libdrm', required: false)
+  libcap_dep = dependency('libcap', required: false)
+else
+  libdrm_dep = null_dep
+  libcap_dep = null_dep
+endif
 
 subdir('mangohud-next/legacy_gpu_wrapper')
 subdir('src')
