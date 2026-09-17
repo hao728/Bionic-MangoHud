@@ -6,7 +6,9 @@
 #include <assert.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#ifndef __ANDROID__
 #include <sys/capability.h>
+#endif
 #include <unistd.h>
 
 #include <spdlog/spdlog.h>
@@ -49,6 +51,10 @@ static void *xe_device_query_alloc_fetch(int fd, uint32_t query_id, uint32_t *le
 }
 
 static bool is_capability_available(int capability) {
+#ifdef __ANDROID__
+    (void)capability;
+    return false;
+#else
     cap_t cap = cap_get_proc();
     cap_flag_value_t cap_enabled = {};
 
@@ -56,10 +62,15 @@ static bool is_capability_available(int capability) {
     cap_free(cap);
 
     return static_cast<bool>(cap_enabled);
+#endif
 }
 
 xe_drm_base::xe_drm_base() {
+#ifdef __ANDROID__
+    has_cap_perfmon = false;
+#else
     has_cap_perfmon = is_capability_available(CAP_PERFMON);
+#endif
     SPDLOG_DEBUG("has_cap_perfmon = {}", has_cap_perfmon);
 }
 
