@@ -5,9 +5,6 @@ on:
     branches: [ winlator-bionic, master ]
   workflow_dispatch:
 
-env:
-  NDK_VERSION: r27c
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,8 +15,6 @@ jobs:
           submodules: recursive
 
       - name: Run Android bionic build script
-        env:
-          ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r27c
         run: |
           chmod +x scripts/build-android-bionic.sh
           ./scripts/build-android-bionic.sh
