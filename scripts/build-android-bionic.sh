@@ -41,6 +41,7 @@ sudo apt-get update -qq
 # libx11-dev provides the X11 headers (loaded via dlopen at runtime)
 sudo apt-get install -y -qq \
   glslang-tools libdrm-dev libx11-dev libxext-dev \
+  python3-mako \
   ninja-build pkg-config zip curl ca-certificates
 
 # Ubuntu 24.04 apt meson is 1.4 (too old, MangoHud needs >= 1.7); install newest via pipx
